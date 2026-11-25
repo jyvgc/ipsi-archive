@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { arrayRemove, arrayUnion, collection, doc, getDoc, getDocs, orderBy, query, setDoc } from "firebase/firestore";
 import { getBlob, getBytes, ref } from "firebase/storage";
 import AuthGate from "@/components/AuthGate";
 import Sidebar from "@/components/Sidebar";
 import DataTable from "@/components/DataTable";
+import { refineSheet } from "@/lib/excel";
 import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth";
 import { writeLog } from "@/lib/log";
@@ -80,7 +81,7 @@ function Viewer() {
 
   const favFiles = favs.map((id) => files.find((f) => f.id === id)).filter(Boolean) as FileMeta[];
   const recent = [...files].sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0)).slice(0, 8);
-  const sheet = data?.sheets[sheetIdx];
+  const sheet = useMemo(() => (data?.sheets[sheetIdx] ? refineSheet(data.sheets[sheetIdx]) : undefined), [data, sheetIdx]);
 
   return (
     <div className="flex h-screen flex-col">
@@ -149,6 +150,7 @@ function Viewer() {
                 </div>
               )}
               {loading && <div className="p-10 text-center text-gray-400">불러오는 중…</div>}
+              {sheet?.title && <div className="mb-2 rounded-lg bg-brand-light px-3 py-2 text-sm font-semibold text-brand">📄 {sheet.title}</div>}
               {sheet && <DataTable key={sel.id + ":" + sheetIdx} sheet={sheet} title={sel.title} />}
             </>
           )}

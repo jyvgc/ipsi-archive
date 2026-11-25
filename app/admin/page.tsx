@@ -109,7 +109,7 @@ function Upload() {
       <div className="flex items-center gap-2">
         <label className="text-sm font-semibold">머리글(열 이름) 행 번호</label>
         <input type="number" min={1} value={headerRow} onChange={(e) => setHeaderRow(Math.max(1, Number(e.target.value)))} className="w-20 rounded-lg border px-2 py-1.5 text-sm" />
-        <span className="text-xs text-gray-400">표 위에 제목 줄이 있으면 숫자를 늘리세요</span>
+        <span className="text-xs text-gray-400">1이면 제목 줄·2줄 머리글을 자동 인식합니다. 결과가 이상할 때만 바꾸세요</span>
       </div>
 
       {parsed && (
@@ -117,6 +117,7 @@ function Upload() {
           <div className="mb-2 font-semibold">미리보기</div>
           {parsed.sheets.map((s) => (
             <div key={s.name} className="mb-2">
+              {s.title && <div className="text-xs text-brand">제목 줄: {s.title}</div>}
               <div><b>{s.name}</b> · {s.rows.length.toLocaleString()}행 · {s.columns.length}열</div>
               <div className="truncate text-xs text-gray-500">열: {s.columns.slice(0, 15).join(", ")}{s.columns.length > 15 && " …"}</div>
             </div>

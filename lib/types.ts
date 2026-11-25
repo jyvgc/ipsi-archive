@@ -1,5 +1,5 @@
 export type Cell = string | number | null;
-export type SheetData = { name: string; columns: string[]; rows: Cell[][] };
+export type SheetData = { name: string; title?: string; columns: string[]; rows: Cell[][]; refined?: boolean };
 export type FileData = { sheets: SheetData[] };
 export type FileMeta = {
   id: string; year: number; round: string; category: string; title: string;
