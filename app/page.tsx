@@ -6,7 +6,7 @@ import { getBlob, getBytes, ref } from "firebase/storage";
 import AuthGate from "@/components/AuthGate";
 import Sidebar from "@/components/Sidebar";
 import DataTable from "@/components/DataTable";
-import { refineSheet } from "@/lib/excel";
+import { dropSerial, refineSheet } from "@/lib/excel";
 import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth";
 import { writeLog } from "@/lib/log";
@@ -81,7 +81,7 @@ function Viewer() {
 
   const favFiles = favs.map((id) => files.find((f) => f.id === id)).filter(Boolean) as FileMeta[];
   const recent = [...files].sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0)).slice(0, 8);
-  const sheet = useMemo(() => (data?.sheets[sheetIdx] ? refineSheet(data.sheets[sheetIdx]) : undefined), [data, sheetIdx]);
+  const sheet = useMemo(() => (data?.sheets[sheetIdx] ? dropSerial(refineSheet(data.sheets[sheetIdx])) : undefined), [data, sheetIdx]);
 
   return (
     <div className="flex h-screen flex-col">

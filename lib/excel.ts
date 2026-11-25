@@ -77,3 +77,13 @@ export function refineSheet(sh: SheetData): SheetData {
     rows: rows.map((r) => r.filter((_, i) => keep[i])).filter((r) => r.some((v) => v !== null)),
   };
 }
+
+/** '연번·순번·번호·No' 열은 표 왼쪽 # 번호와 겹치므로 열람 화면에서 숨긴다 (원본 파일은 그대로). */
+const SERIAL = /^(연번|순번|번호|일련번호|no\.?|순)$/i;
+export function dropSerial(sh: SheetData): SheetData {
+  const idx = sh.columns.findIndex((c) => SERIAL.test(c.replace(/\s/g, "")));
+  if (idx < 0) return sh;
+  const vals = sh.rows.map((r) => r[idx]).filter((v) => v !== null);
+  if (vals.some((v) => typeof v !== "number")) return sh; // 숫자 번호일 때만 숨김
+  return { ...sh, columns: sh.columns.filter((_, i) => i !== idx), rows: sh.rows.map((r) => r.filter((_, i) => i !== idx)) };
+}
