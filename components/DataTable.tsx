@@ -7,7 +7,37 @@ const PAGE = 100;
 const s = (v: Cell) => (v === null ? "" : String(v));
 const fmt = (v: Cell) => (typeof v === "number" ? (Number.isInteger(v) ? v.toLocaleString("ko-KR") : String(Math.round(v * 1000) / 1000)) : s(v));
 
+const textW = (t: string) => [...t].reduce((a, ch) => a + (ch.charCodeAt(0) > 255 ? 14 : 8), 0);
+function autoWidths(sheet: SheetData) {
+  return sheet.columns.map((c, i) => {
+    let w = textW(String(c)) + 44;
+    for (const r of sheet.rows.slice(0, 200)) w = Math.max(w, textW(fmt(r[i] ?? null)) + 20);
+    return Math.min(360, Math.max(56, w));
+  });
+}
+
 export default function DataTable({ sheet, title }: { sheet: SheetData; title: string }) {
+  const wKey = `colw:${title}:${sheet.name}`;
+  const [widths, setWidths] = useState<number[]>(() => autoWidths(sheet));
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(wKey) || "null");
+      setWidths(Array.isArray(saved) && saved.length === sheet.columns.length ? saved : autoWidths(sheet));
+    } catch { setWidths(autoWidths(sheet)); }
+  }, [wKey, sheet]);
+  const saveW = (w: number[]) => { setWidths(w); try { localStorage.setItem(wKey, JSON.stringify(w)); } catch {} };
+  const startResize = (i: number, e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    const x0 = e.clientX, w0 = widths[i];
+    let cur = widths;
+    const move = (ev: PointerEvent) => {
+      cur = widths.map((w, k) => (k === i ? Math.max(40, Math.round(w0 + ev.clientX - x0)) : w));
+      setWidths(cur);
+    };
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); saveW(cur); };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  };
+  const fitCol = (i: number) => saveW(widths.map((w, k) => (k === i ? autoWidths(sheet)[i] : w)));
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<{ c: number; d: 1 | -1 } | null>(null);
   const [filters, setFilters] = useState<Record<number, Set<string>>>({});
@@ -50,27 +80,31 @@ export default function DataTable({ sheet, title }: { sheet: SheetData; title: s
       <div className="flex flex-wrap items-center gap-2 pb-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="전체 검색 (학교명, 학과 등)"
           className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand sm:max-w-xs" />
-        <span className="text-sm text-gray-500"><b className="text-gray-800">{rows.length.toLocaleString()}</b> / {sheet.rows.length.toLocaleString()}행</span>
+        <span className="mr-auto text-sm text-gray-500"><b className="text-gray-800">{rows.length.toLocaleString()}</b> / {sheet.rows.length.toLocaleString()}행</span>
         {(nf > 0 || sort || q) && (
           <button onClick={() => { setFilters({}); setSort(null); setQ(""); }} className="rounded-lg border px-2 py-1.5 text-xs">초기화{nf > 0 && ` (필터 ${nf})`}</button>
         )}
-        <button onClick={exportXlsx} className="ml-auto rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50">현재 결과 엑셀 저장</button>
+        <button onClick={() => { localStorage.removeItem(wKey); setWidths(autoWidths(sheet)); }} className="rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50" title="열 너비를 내용에 맞게 자동 조절">열 너비 자동</button>
+        <button onClick={exportXlsx} className="rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50">현재 결과 엑셀 저장</button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto rounded-xl border bg-white">
-        <table className="min-w-full border-separate border-spacing-0 text-sm">
+        <table className="table-fixed border-separate border-spacing-0 text-sm" style={{ width: 48 + widths.reduce((a, b) => a + b, 0) }}>
+          <colgroup><col style={{ width: 48 }} />{widths.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
           <thead>
             <tr>
               <th className="sticky left-0 top-0 z-30 border-b bg-gray-100 px-2 py-2 text-xs text-gray-400">#</th>
               {sheet.columns.map((c, i) => (
-                <th key={i} className={`sticky top-0 z-20 whitespace-nowrap border-b border-l px-2 py-2 text-left font-semibold ${filters[i] ? "bg-brand-light" : "bg-gray-100"}`}>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => clickSort(i)} className="text-left hover:text-brand">
+                <th key={i} className={`relative sticky top-0 z-20 whitespace-nowrap border-b border-l px-2 py-2 text-left font-semibold ${filters[i] ? "bg-brand-light" : "bg-gray-100"}`}>
+                  <div className="flex items-center gap-1 overflow-hidden">
+                    <button onClick={() => clickSort(i)} title={String(c)} className="min-w-0 truncate text-left hover:text-brand">
                       {c}{sort?.c === i && (sort.d === 1 ? " ▲" : " ▼")}
                     </button>
                     <button onClick={() => setFcol(i)} title="열 필터"
-                      className={`rounded px-1 text-xs ${filters[i] ? "bg-brand text-white" : "text-gray-400 hover:bg-gray-200"}`}>⏷</button>
+                      className={`shrink-0 rounded px-1 text-xs ${filters[i] ? "bg-brand text-white" : "text-gray-400 hover:bg-gray-200"}`}>⏷</button>
                   </div>
+                  <span onPointerDown={(e) => startResize(i, e)} onDoubleClick={() => fitCol(i)} title="드래그: 너비 조절 / 더블클릭: 자동 맞춤"
+                    className="absolute -right-1 top-0 z-10 h-full w-3 cursor-col-resize touch-none hover:bg-brand/30" />
                 </th>
               ))}
             </tr>
@@ -80,7 +114,7 @@ export default function DataTable({ sheet, title }: { sheet: SheetData; title: s
               <tr key={ri} className="odd:bg-white even:bg-gray-50 hover:bg-yellow-50">
                 <td className="sticky left-0 z-10 border-b bg-inherit px-2 py-1.5 text-right text-xs text-gray-400">{page * PAGE + ri + 1}</td>
                 {r.map((v, ci) => (
-                  <td key={ci} className={`whitespace-nowrap border-b border-l px-2 py-1.5 ${typeof v === "number" ? "text-right tabular-nums" : ""}`}>{fmt(v)}</td>
+                  <td key={ci} title={fmt(v)} className={`overflow-hidden text-ellipsis whitespace-nowrap border-b border-l px-2 py-1.5 ${typeof v === "number" ? "text-right tabular-nums" : ""}`}>{fmt(v)}</td>
                 ))}
               </tr>
             ))}
