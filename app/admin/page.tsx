@@ -8,13 +8,15 @@ import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth";
 import { parseWorkbook } from "@/lib/excel";
 import { writeLog } from "@/lib/log";
-import { CATEGORIES, ROUNDS, type FileData, type FileMeta } from "@/lib/types";
+import { type FileData, type FileMeta } from "@/lib/types";
+import { saveCats, useCats, type Cats } from "@/lib/settings";
+import { where, writeBatch } from "firebase/firestore";
 
 export default function AdminPage() {
   return <AuthGate adminOnly><Admin /></AuthGate>;
 }
 
-const TABS = ["자료 업로드", "자료 관리", "사용자 관리", "열람 로그"] as const;
+const TABS = ["자료 업로드", "자료 관리", "분류 관리", "사용자 관리", "열람 로그"] as const;
 const input = "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand";
 
 function Admin() {
@@ -34,6 +36,7 @@ function Admin() {
       <div className="mx-auto max-w-4xl p-4">
         {tab === "자료 업로드" && <Upload />}
         {tab === "자료 관리" && <Manage />}
+        {tab === "분류 관리" && <CatManager />}
         {tab === "사용자 관리" && <Users />}
         {tab === "열람 로그" && <Logs />}
       </div>
@@ -48,8 +51,11 @@ function Upload() {
   const [headerRow, setHeaderRow] = useState(1);
   const [parsed, setParsed] = useState<FileData | null>(null);
   const [year, setYear] = useState(new Date().getFullYear() + 1);
-  const [round, setRound] = useState(ROUNDS[0]);
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const { rounds: ROUNDS, categories: CATEGORIES } = useCats();
+  const [round, setRound] = useState("");
+  const [category, setCategory] = useState("");
+  useEffect(() => { if (!round || !ROUNDS.includes(round)) setRound(ROUNDS[0] ?? ""); }, [ROUNDS]); // eslint-disable-line
+  useEffect(() => { if (!category || !CATEGORIES.includes(category)) setCategory(CATEGORIES[0] ?? ""); }, [CATEGORIES]); // eslint-disable-line
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -101,8 +107,7 @@ function Upload() {
         <div><label className="mb-1 block text-sm font-semibold">전형</label>
           <select value={round} onChange={(e) => setRound(e.target.value)} className={input}>{ROUNDS.map((r) => <option key={r}>{r}</option>)}</select></div>
         <div><label className="mb-1 block text-sm font-semibold">자료 종류</label>
-          <input list="cats" value={category} onChange={(e) => setCategory(e.target.value)} className={input} />
-          <datalist id="cats">{CATEGORIES.map((c) => <option key={c} value={c} />)}</datalist></div>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className={input}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></div>
       </div>
       <div><label className="mb-1 block text-sm font-semibold">제목</label>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 최근2년간 수시1차 학과별 지원" className={input} /></div>
@@ -141,6 +146,8 @@ function Manage() {
   };
   useEffect(() => { load(); }, []);
 
+  const { rounds: ROUNDS, categories: CATEGORIES } = useCats();
+  const opts = (list: string[], cur: string) => (list.includes(cur) ? list : [cur, ...list]);
   async function remove(f: FileMeta) {
     if (!confirm(`‘${f.title}’을(를) 삭제할까요? 되돌릴 수 없습니다.`)) return;
     await Promise.allSettled([deleteObject(ref(storage, f.originalPath)), deleteObject(ref(storage, f.dataPath))]);
@@ -159,8 +166,8 @@ function Manage() {
       {files.map((f) => edit?.id === f.id ? (
         <div key={f.id} className="grid gap-2 rounded-xl border-2 border-brand bg-white p-3 sm:grid-cols-5">
           <input type="number" value={edit.year} onChange={(e) => setEdit({ ...edit, year: Number(e.target.value) })} className={input} />
-          <select value={edit.round} onChange={(e) => setEdit({ ...edit, round: e.target.value })} className={input}>{ROUNDS.map((r) => <option key={r}>{r}</option>)}</select>
-          <input value={edit.category} onChange={(e) => setEdit({ ...edit, category: e.target.value })} className={input} />
+          <select value={edit.round} onChange={(e) => setEdit({ ...edit, round: e.target.value })} className={input}>{opts(ROUNDS, edit.round).map((r) => <option key={r}>{r}</option>)}</select>
+          <select value={edit.category} onChange={(e) => setEdit({ ...edit, category: e.target.value })} className={input}>{opts(CATEGORIES, edit.category).map((c) => <option key={c}>{c}</option>)}</select>
           <input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} className={`${input} sm:col-span-2`} />
           <div className="flex gap-2 sm:col-span-5">
             <button onClick={save} className="rounded-lg bg-brand px-4 py-2 text-sm text-white">저장</button>
@@ -248,6 +255,80 @@ function Logs() {
         </tbody>
       </table>
       <p className="p-2 text-xs text-gray-400">최근 300건 표시</p>
+    </div>
+  );
+}
+
+function CatManager() {
+  const cats = useCats();
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    getDocs(collection(db, "files")).then((s) => {
+      const c: Record<string, number> = {};
+      s.docs.forEach((d) => { const x = d.data(); c["r:" + x.round] = (c["r:" + x.round] ?? 0) + 1; c["c:" + x.category] = (c["c:" + x.category] ?? 0) + 1; });
+      setCounts(c);
+    });
+  }, [cats]);
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <CatList label="전형" field="round" k="rounds" cats={cats} counts={counts} prefix="r:" />
+      <CatList label="자료 종류" field="category" k="categories" cats={cats} counts={counts} prefix="c:" />
+      <p className="text-xs text-gray-500 md:col-span-2">· 순서는 ▲▼로 바꾸며, 왼쪽 메뉴에도 이 순서대로 표시됩니다. · 이름을 바꾸면 그 분류로 등록된 자료도 함께 바뀝니다. · 자료가 있는 분류를 삭제해도 자료는 지워지지 않고 메뉴에 그대로 보입니다.</p>
+    </div>
+  );
+}
+
+function CatList({ label, field, k, cats, counts, prefix }: { label: string; field: "round" | "category"; k: keyof Cats; cats: Cats; counts: Record<string, number>; prefix: string }) {
+  const list = cats[k];
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async (next: string[]) => { setBusy(true); try { await saveCats({ ...cats, [k]: next }); } catch (e) { alert("저장 실패: " + (e as Error).message); } setBusy(false); };
+  const add = () => {
+    const v = name.trim(); if (!v) return;
+    if (list.includes(v)) { alert("이미 있는 항목입니다."); return; }
+    save([...list, v]); setName("");
+  };
+  const move = (i: number, d: number) => { const j = i + d; if (j < 0 || j >= list.length) return; const n = [...list]; [n[i], n[j]] = [n[j], n[i]]; save(n); };
+  const del = (v: string) => {
+    if (list.length <= 1) { alert("최소 1개는 남겨야 합니다."); return; }
+    const c = counts[prefix + v] ?? 0;
+    if (!confirm(c ? `‘${v}’에 등록된 자료 ${c}개가 있습니다. 목록에서만 삭제할까요? (자료는 유지)` : `‘${v}’을(를) 삭제할까요?`)) return;
+    save(list.filter((x) => x !== v));
+  };
+  const rename = async (v: string) => {
+    const nv = prompt(`‘${v}’의 새 이름`, v)?.trim();
+    if (!nv || nv === v) return;
+    if (list.includes(nv)) { alert("이미 있는 이름입니다."); return; }
+    setBusy(true);
+    try {
+      const s = await getDocs(query(collection(db, "files"), where(field, "==", v)));
+      for (let i = 0; i < s.docs.length; i += 400) {
+        const b = writeBatch(db);
+        s.docs.slice(i, i + 400).forEach((d) => b.update(d.ref, { [field]: nv }));
+        await b.commit();
+      }
+      await saveCats({ ...cats, [k]: list.map((x) => (x === v ? nv : x)) });
+    } catch (e) { alert("변경 실패: " + (e as Error).message); }
+    setBusy(false);
+  };
+  return (
+    <div className="rounded-2xl bg-white p-4 shadow-sm">
+      <h3 className="mb-3 font-bold">{label}</h3>
+      <div className="mb-3 flex gap-2">
+        <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder={`새 ${label} 이름`} className={input} />
+        <button onClick={add} disabled={busy} className="shrink-0 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">추가</button>
+      </div>
+      <ul className="space-y-1">
+        {list.map((v, i) => (
+          <li key={v} className="flex items-center gap-1 rounded-lg border px-2 py-1.5 text-sm">
+            <span className="flex-1 truncate">{v}<span className="ml-2 text-xs text-gray-400">{counts[prefix + v] ? `자료 ${counts[prefix + v]}개` : ""}</span></span>
+            <button disabled={busy || i === 0} onClick={() => move(i, -1)} className="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-30">▲</button>
+            <button disabled={busy || i === list.length - 1} onClick={() => move(i, 1)} className="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-30">▼</button>
+            <button disabled={busy} onClick={() => rename(v)} className="rounded border px-2 py-1 text-xs">이름변경</button>
+            <button disabled={busy} onClick={() => del(v)} className="rounded border border-red-300 px-2 py-1 text-xs text-red-600">삭제</button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

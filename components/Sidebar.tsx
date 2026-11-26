@@ -1,11 +1,13 @@
 "use client";
 import { useMemo, useState } from "react";
-import { FileMeta, ROUNDS } from "@/lib/types";
+import { FileMeta } from "@/lib/types";
+import { useCats } from "@/lib/settings";
 
 type Props = { files: FileMeta[]; selectedId?: string; favs: string[]; onSelect: (f: FileMeta) => void };
 
 export default function Sidebar({ files, selectedId, favs, onSelect }: Props) {
   const [q, setQ] = useState("");
+  const { rounds: ROUNDS, categories: CATS } = useCats();
   const tree = useMemo(() => {
     const ql = q.trim().toLowerCase();
     const list = ql ? files.filter((f) => `${f.title} ${f.category} ${f.round} ${f.year}`.toLowerCase().includes(ql)) : files;
@@ -19,14 +21,15 @@ export default function Sidebar({ files, selectedId, favs, onSelect }: Props) {
       r.get(f.category)!.push(f);
     }
     const ro = (a: string) => { const i = ROUNDS.indexOf(a); return i < 0 ? 99 : i; };
+    const co = (a: string) => { const i = CATS.indexOf(a); return i < 0 ? 99 : i; };
     return [...t.entries()].sort((a, b) => b[0] - a[0]).map(([year, rm]) => ({
       year,
       rounds: [...rm.entries()].sort((a, b) => ro(a[0]) - ro(b[0]) || a[0].localeCompare(b[0], "ko")).map(([round, cm]) => ({
         round,
-        cats: [...cm.entries()].sort((a, b) => a[0].localeCompare(b[0], "ko")).map(([cat, fs]) => ({ cat, fs: fs.sort((a, b) => a.title.localeCompare(b.title, "ko")) })),
+        cats: [...cm.entries()].sort((a, b) => co(a[0]) - co(b[0]) || a[0].localeCompare(b[0], "ko")).map(([cat, fs]) => ({ cat, fs: fs.sort((a, b) => a.title.localeCompare(b.title, "ko")) })),
       })),
     }));
-  }, [files, q]);
+  }, [files, q, ROUNDS, CATS]);
   const open = q.trim().length > 0;
 
   return (
